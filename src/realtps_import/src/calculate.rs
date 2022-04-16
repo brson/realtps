@@ -25,6 +25,24 @@ pub async fn calculate_for_chain(chain: Chain, db: Arc<dyn Db>) -> Result<ChainC
         .checked_sub(seconds_per_week)
         .expect("underflow");
 
+    Ok(calculate_from_blocks(
+        chain,
+        db,
+        highest_block_number,
+        latest_timestamp,
+        min_timestamp
+    ).await?)
+}
+
+async fn calculate_from_blocks(
+    chain: Chain,
+    db: Arc<dyn Db>,
+    highest_block_number: u64,
+    latest_timestamp: u64,
+    min_timestamp: u64,
+) -> Result<ChainCalcs> {
+    let load_block = |number| load_block(chain, &db, number);
+
     let mut current_block = load_block(highest_block_number)
         .await?
         .ok_or_else(|| anyhow!("missing first block"))?;
