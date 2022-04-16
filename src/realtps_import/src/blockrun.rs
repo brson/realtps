@@ -15,28 +15,46 @@ use futures::stream::{Stream, StreamExt};
 
 const BLOCK_RUN_MIN_SECS: u64 = 60 * 60;
 
-pub async fn block_run_stream(chain: Chain, db: Arc<dyn Db>) -> Result<ReceiverStream<Result<BlockRun>>> {
-    let stream = make_block_run_stream(chain, db);
+pub async fn block_run_stream(
+    chain: Chain,
+    db: Arc<dyn Db>,
+    starting_block_number: u64,
+) -> Result<ReceiverStream<Result<BlockRun>>> {
+    let stream = make_block_run_stream(chain, db, starting_block_number);
     let stream = merge_short_runs(stream).await?;
     let stream = check_stream(stream).await?;
 
     Ok(stream)
 }
 
-fn make_block_run_stream(chain: Chain, db: Arc<dyn Db>) -> ReceiverStream<Result<BlockRun>> {
+fn make_block_run_stream(
+    chain: Chain,
+    db: Arc<dyn Db>,
+    starting_block_number: u64,
+) -> ReceiverStream<Result<BlockRun>> {
     let (tx, rx) = mpsc::channel(1);
-    task::spawn(send_block_runs(chain, db, tx));
+    task::spawn(send_block_runs(chain, db, tx, starting_block_number));
     ReceiverStream::new(rx)
 }
 
-async fn send_block_runs(chain: Chain, db: Arc<dyn Db>, tx: Sender<Result<BlockRun>>) {
-    let r = send_block_runs_fallible(chain, db, tx.clone()).await;
+async fn send_block_runs(
+    chain: Chain,
+    db: Arc<dyn Db>,
+    tx: Sender<Result<BlockRun>>,
+    starting_block_number: u64,
+) {
+    let r = send_block_runs_fallible(chain, db, tx.clone(), starting_block_number).await;
     if let Err(e) = r {
         let _ = tx.send(Err(e)).await;
     }
 }
 
-async fn send_block_runs_fallible(chain: Chain, db: Arc<dyn Db + 'static>, tx: Sender<Result<BlockRun>>) -> Result<()> {
+async fn send_block_runs_fallible(
+    chain: Chain,
+    db: Arc<dyn Db + 'static>,
+    tx: Sender<Result<BlockRun>>,
+    starting_block_number: u64,
+) -> Result<()> {
     let block_runs = load_block_run_summary(chain, &db).await?;
     let block_runs: Vec<BlockRun> = block_runs.map(|br| br.block_runs).unwrap_or_default();
     let mut block_runs = block_runs.into_iter().peekable();
@@ -74,25 +92,18 @@ async fn send_block_runs_fallible(chain: Chain, db: Arc<dyn Db + 'static>, tx: S
                 tx.send(Ok(block_run)).await?;
             }
             Ok(())
-        };
+        }
 
         fn handle_reorg(block_runs: &mut impl Iterator) {
             block_runs.next();
         }
 
-        let highest_block_number = load_highest_known_block_number(chain, &db).await?;
-
-        if highest_block_number.is_none() {
-            return Ok(());
-        }
-
-        let highest_block_number = highest_block_number.unwrap();
-        let highest_block_timestamp = load_block(chain, &db, highest_block_number).await?
+        let starting_block_timestamp = load_block(chain, &db, starting_block_number).await?
             .ok_or_else(|| anyhow!("missing first block"))?
             .timestamp;
 
-        let mut block_number = highest_block_number;
-        let mut last_block_run_timestamp = highest_block_timestamp;
+        let mut block_number = starting_block_number;
+        let mut last_block_run_timestamp = starting_block_timestamp;
         let mut block_buffer = vec![];
 
         loop {
