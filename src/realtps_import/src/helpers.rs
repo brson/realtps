@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use log::debug;
 use realtps_common::{
     chain::Chain,
-    db::{Block, Db},
+    db::{Block, Db, BlockRunSummary},
 };
 use std::sync::Arc;
 use tokio::task;
@@ -77,5 +77,20 @@ pub async fn load_block(
 ) -> Result<Option<Block>> {
     let db = db.clone();
     let block = task::spawn_blocking(move || db.load_block(chain, block_number)).await??;
+    Ok(block)
+}
+
+pub async fn _store_block_run_summary(db: &Arc<dyn Db>, chain: Chain, summary: BlockRunSummary) -> Result<()> {
+    let db = db.clone();
+    task::spawn_blocking(move || db.store_block_run_summary(chain, summary)).await??;
+    Ok(())
+}
+
+pub async fn load_block_run_summary(
+    chain: Chain,
+    db: &Arc<dyn Db>,
+) -> Result<Option<BlockRunSummary>> {
+    let db = db.clone();
+    let block = task::spawn_blocking(move || db.load_block_run_summary(chain)).await??;
     Ok(block)
 }

@@ -17,7 +17,7 @@ pub async fn calculate_for_chain(chain: Chain, db: Arc<dyn Db>) -> Result<ChainC
 
     let latest_timestamp = load_block(highest_block_number)
         .await?
-        .expect("first block")
+        .ok_or_else(|| anyhow!("missing first block"))?
         .timestamp;
 
     let seconds_per_week = 60 * 60 * 24 * 7;
@@ -27,7 +27,7 @@ pub async fn calculate_for_chain(chain: Chain, db: Arc<dyn Db>) -> Result<ChainC
 
     let mut current_block = load_block(highest_block_number)
         .await?
-        .expect("first_block");
+        .ok_or_else(|| anyhow!("missing first block"))?;
 
     let mut num_txs: u64 = 0;
 

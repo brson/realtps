@@ -20,6 +20,7 @@ use std::sync::Arc;
 use substrate::SubstrateClient;
 use tokio::task;
 
+mod blockrun;
 mod calculate;
 mod client;
 mod delay;

@@ -16,8 +16,32 @@ pub struct Block {
     pub timestamp: u64, // seconds since unix epoch
     pub num_txs: u64,
     pub hash: String,
-    // FIXME this could be None, like prev_block_number
+    // FIXME this could be None, like prev_block_number,
+    // use PreviousBlock struct
     pub parent_hash: String,
+}
+
+/// Caches summed data for a contiguous "run" of blocks.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BlockRun {
+    pub newest_block_number: u64,
+    pub newest_block_hash: String,
+    pub newest_block_timestamp: u64,
+    pub oldest_block_timestamp: u64,
+    pub prev_block: Option<PreviousBlock>,
+    pub num_blocks: u64,
+    pub num_txs: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PreviousBlock {
+    pub prev_block_number: u64,
+    pub prev_block_hash: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BlockRunSummary {
+    pub block_runs: Vec<BlockRun>,
 }
 
 pub trait Db: Send + Sync + 'static {
@@ -29,6 +53,9 @@ pub trait Db: Send + Sync + 'static {
 
     fn store_tps(&self, chain: Chain, tps: f64) -> Result<()>;
     fn load_tps(&self, chain: Chain) -> Result<Option<f64>>;
+
+    fn store_block_run_summary(&self, chain: Chain, summary: BlockRunSummary) -> Result<()>;
+    fn load_block_run_summary(&self, chain: Chain) -> Result<Option<BlockRunSummary>>;
 }
 
 pub struct JsonDb;
@@ -36,6 +63,7 @@ pub struct JsonDb;
 pub static JSON_DB_DIR: &str = "db";
 pub static HIGHEST_BLOCK_NUMBER: &str = "highest_block_number";
 pub static TRANSACTIONS_PER_SECOND: &str = "tps";
+pub static BLOCK_RUN_SUMMARY: &str = "block_runs";
 
 impl Db for JsonDb {
     fn store_block(&self, block: Block) -> Result<()> {
@@ -74,6 +102,21 @@ impl Db for JsonDb {
         read_json_db(
             &format!("{}", chain),
             &format!("{}", TRANSACTIONS_PER_SECOND),
+        )
+    }
+
+    fn store_block_run_summary(&self, chain: Chain, summary: BlockRunSummary) -> Result<()> {
+        write_json_db(
+            &format!("{}", chain),
+            &format!("{}", BLOCK_RUN_SUMMARY),
+            &summary,
+        )
+    }
+
+    fn load_block_run_summary(&self, chain: Chain) -> Result<Option<BlockRunSummary>> {
+        read_json_db(
+            &format!("{}", chain),
+            &format!("{}", BLOCK_RUN_SUMMARY),
         )
     }
 }
