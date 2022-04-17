@@ -108,11 +108,13 @@ async fn calculate_from_block_runs(
             break;
         } else {
             num_txs = num_txs.saturating_add(block_run.num_txs);
+            init_timestamp = block_run.oldest_block_timestamp;
         }
     }
 
     blockrun::save_block_runs(chain, &db, BlockRunSummary { block_runs }).await?;
 
+    println!("br {}, {}, {}", init_timestamp, highest_block_timestamp, num_txs);
     let tps = calculate_tps(init_timestamp, highest_block_timestamp, num_txs)?;
 
     Ok(ChainCalcs { chain, tps })
@@ -134,6 +136,7 @@ async fn calculate_from_blocks(
         min_timestamp,
     ).await?;
 
+    println!("b {}, {}, {}", init_timestamp, highest_block_timestamp, num_txs);
     let tps = calculate_tps(init_timestamp, highest_block_timestamp, num_txs)?;
 
     Ok(ChainCalcs { chain, tps })
