@@ -88,6 +88,26 @@ async fn calculate_from_blocks(
     highest_block_timestamp: u64,
     min_timestamp: u64,
 ) -> Result<ChainCalcs> {
+    let (num_txs, init_timestamp) = num_txs_from_blocks(
+        chain,
+        db,
+        highest_block_number,
+        highest_block_hash,
+        min_timestamp,
+    ).await?;
+
+    let tps = calculate_tps(init_timestamp, highest_block_timestamp, num_txs)?;
+
+    Ok(ChainCalcs { chain, tps })
+}
+
+async fn num_txs_from_blocks(
+    chain: Chain,
+    db: Arc<dyn Db>,
+    highest_block_number: u64,
+    highest_block_hash: String,
+    min_timestamp: u64,
+) -> Result<(u64, u64)> {
     let load_block = |number| load_block(chain, &db, number);
 
     let mut current_block = load_block(highest_block_number)
@@ -131,9 +151,7 @@ async fn calculate_from_blocks(
         current_block = prev_block;
     };
 
-    let tps = calculate_tps(init_timestamp, highest_block_timestamp, num_txs)?;
-
-    Ok(ChainCalcs { chain, tps })
+    Ok((num_txs, init_timestamp))
 }
 
 fn calculate_tps(init_timestamp: u64, latest_timestamp: u64, num_txs: u64) -> Result<f64> {
