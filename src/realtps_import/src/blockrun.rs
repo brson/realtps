@@ -194,9 +194,15 @@ async fn send_block_runs_fallible(
     // Now turn all the remaining blocks into block runs
     {
         let starting_block_number = last_starting_block_number;
-        let starting_block_timestamp = load_block(chain, &db, starting_block_number).await?
-            .ok_or_else(|| anyhow!("missing first block"))?
-            .timestamp;
+        let starting_block_timestamp = {
+            let starting_block = load_block(chain, &db, starting_block_number).await?;
+            if let Some(starting_block) = starting_block {
+                starting_block.timestamp
+            } else {
+                // No more blocks
+                return Ok(());
+            }
+        };          
 
         let mut block_number = starting_block_number;
         let mut last_block_run_timestamp = starting_block_timestamp;

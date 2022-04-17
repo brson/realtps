@@ -55,6 +55,9 @@ pub async fn calculate_for_chain(chain: Chain, db: Arc<dyn Db>) -> Result<ChainC
     let calcs_from_blocks = calc_from_blocks_task.await??;
     let calcs_from_block_runs = calc_from_block_runs_task.await??;
 
+    log::debug!("cbc {}", calcs_from_blocks.tps);
+    log::debug!("cbcr {}", calcs_from_block_runs.tps);
+
     if calcs_from_blocks.tps != calcs_from_block_runs.tps {
         bail!("calcs from blocks != calcs_from_block_runs for {}", chain);
     }
