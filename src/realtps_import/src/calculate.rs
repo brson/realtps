@@ -106,6 +106,8 @@ async fn calculate_from_block_runs(
         }
     }
 
+    todo!(); // save block runs
+
     let tps = calculate_tps(init_timestamp, highest_block_timestamp, num_txs)?;
 
     Ok(ChainCalcs { chain, tps })
