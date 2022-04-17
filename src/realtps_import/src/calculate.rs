@@ -5,6 +5,7 @@ use std::sync::Arc;
 use crate::blockrun;
 use futures::StreamExt;
 use std::pin::Pin;
+use tokio::task;
 
 pub struct ChainCalcs {
     pub chain: Chain,
@@ -28,14 +29,36 @@ pub async fn calculate_for_chain(chain: Chain, db: Arc<dyn Db>) -> Result<ChainC
         .checked_sub(seconds_per_week)
         .expect("underflow");
 
-    Ok(calculate_from_blocks(
-        chain,
-        db,
-        highest_block_number,
-        highest_block_hash,
-        highest_block_timestamp,
-        min_timestamp
-    ).await?)
+    let calc_from_blocks_task = task::spawn(
+        calculate_from_blocks(
+            chain,
+            db.clone(),
+            highest_block_number,
+            highest_block_hash.clone(),
+            highest_block_timestamp,
+            min_timestamp
+        )
+    );
+
+    let calc_from_block_runs_task = task::spawn(
+        calculate_from_block_runs(
+            chain,
+            db.clone(),
+            highest_block_number,
+            highest_block_hash.clone(),
+            highest_block_timestamp,
+            min_timestamp
+        )
+    );
+
+    let calcs_from_blocks = calc_from_blocks_task.await??;
+    let calcs_from_block_runs = calc_from_block_runs_task.await??;
+
+    if calcs_from_blocks.tps != calcs_from_block_runs.tps {
+        bail!("calcs from blocks != calcs_from_block_runs for {}", chain);
+    }
+
+    Ok(calcs_from_block_runs)
 }
 
 async fn calculate_from_block_runs(
