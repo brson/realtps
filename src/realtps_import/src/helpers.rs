@@ -80,7 +80,7 @@ pub async fn load_block(
     Ok(block)
 }
 
-pub async fn _store_block_run_summary(db: &Arc<dyn Db>, chain: Chain, summary: BlockRunSummary) -> Result<()> {
+pub async fn store_block_run_summary(chain: Chain, db: &Arc<dyn Db>, summary: BlockRunSummary) -> Result<()> {
     let db = db.clone();
     task::spawn_blocking(move || db.store_block_run_summary(chain, summary)).await??;
     Ok(())

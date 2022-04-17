@@ -23,6 +23,7 @@ pub struct Block {
 
 /// Caches summed data for a contiguous "run" of blocks.
 #[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone)]
 pub struct BlockRun {
     pub newest_block_number: u64,
     pub newest_block_hash: String,

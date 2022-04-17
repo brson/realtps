@@ -8,6 +8,7 @@ use crate::blockrun;
 use futures::StreamExt;
 use std::pin::Pin;
 use tokio::task;
+use realtps_common::db::BlockRunSummary;
 
 pub struct ChainCalcs {
     pub chain: Chain,
@@ -84,18 +85,19 @@ async fn calculate_from_block_runs(
     }
 
     let mut num_txs: u64 = 0;
-
     let mut init_timestamp = 0;
+    let mut block_runs = vec![];    
 
     while let Some(block_run) = block_run_stream.next().await {
         let block_run = block_run?;
+        block_runs.push(block_run.clone());
         if block_run.newest_block_timestamp <= min_timestamp {
             init_timestamp = block_run.newest_block_timestamp;
             break;
         } else if block_run.oldest_block_timestamp <= min_timestamp {
             let (more_txs, init_timestamp_) = num_txs_from_blocks(
                 chain,
-                db,
+                db.clone(),
                 block_run.newest_block_number,
                 block_run.newest_block_hash,
                 min_timestamp,
@@ -108,7 +110,7 @@ async fn calculate_from_block_runs(
         }
     }
 
-    todo!(); // save block runs
+    blockrun::save_block_runs(chain, &db, BlockRunSummary { block_runs }).await?;
 
     let tps = calculate_tps(init_timestamp, highest_block_timestamp, num_txs)?;
 

@@ -1,7 +1,7 @@
 use crate::helpers::*;
 use anyhow::{Result, anyhow};
 use realtps_common::chain::Chain;
-use realtps_common::db::{Block, BlockRun, PreviousBlock, Db};
+use realtps_common::db::{Block, BlockRun, PreviousBlock, Db, BlockRunSummary};
 use std::sync::Arc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio::sync::mpsc::{self, Sender};
@@ -21,6 +21,27 @@ pub async fn block_run_stream(
     let stream = check_stream(stream).await?;
 
     Ok(stream)
+}
+
+pub async fn save_block_runs(
+    chain: Chain,
+    db: &Arc<dyn Db>,
+    block_runs: BlockRunSummary,
+) -> Result<()> {
+    let mut prev_block_run: Option<&BlockRun> = None;
+    for block_run in &block_runs.block_runs {
+        if let Some(prev_block_run) = prev_block_run {
+            if let Some(prev_block) = prev_block_run.prev_block.as_ref() {
+                assert!(prev_block.prev_block_number == block_run.newest_block_number);
+            }
+        }
+
+        prev_block_run = Some(block_run);
+    }
+
+    store_block_run_summary(chain, db, block_runs).await?;
+
+    Ok(())
 }
 
 fn make_block_run_stream(
