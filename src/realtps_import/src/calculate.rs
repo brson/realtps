@@ -1,7 +1,10 @@
 use crate::helpers::*;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Result, bail};
 use realtps_common::{chain::Chain, db::Db};
 use std::sync::Arc;
+use crate::blockrun;
+use futures::StreamExt;
+use std::pin::Pin;
 
 pub struct ChainCalcs {
     pub chain: Chain,
@@ -15,13 +18,13 @@ pub async fn calculate_for_chain(chain: Chain, db: Arc<dyn Db>) -> Result<ChainC
 
     let load_block = |number| load_block(chain, &db, number);
 
-    let latest_timestamp = load_block(highest_block_number)
-        .await?
-        .ok_or_else(|| anyhow!("missing first block"))?
-        .timestamp;
+    let highest_block = load_block(highest_block_number).await?
+        .ok_or_else(|| anyhow!("missing first block"))?;
+    let highest_block_hash = highest_block.hash;
+    let highest_block_timestamp = highest_block.timestamp;
 
     let seconds_per_week = 60 * 60 * 24 * 7;
-    let min_timestamp = latest_timestamp
+    let min_timestamp = highest_block_timestamp
         .checked_sub(seconds_per_week)
         .expect("underflow");
 
@@ -29,16 +32,60 @@ pub async fn calculate_for_chain(chain: Chain, db: Arc<dyn Db>) -> Result<ChainC
         chain,
         db,
         highest_block_number,
-        latest_timestamp,
+        highest_block_hash,
+        highest_block_timestamp,
         min_timestamp
     ).await?)
+}
+
+async fn calculate_from_block_runs(
+    chain: Chain,
+    db: Arc<dyn Db>,
+    highest_block_number: u64,
+    highest_block_hash: String,
+    highest_block_timestamp: u64,
+    min_timestamp: u64,
+) -> Result<ChainCalcs> {
+    let block_run_stream = blockrun::block_run_stream(chain, db.clone(), highest_block_number).await?;
+    let mut block_run_stream = block_run_stream.peekable();
+
+    if let Some(first_block_run) = Pin::new(&mut block_run_stream).peek().await {
+        if let Ok(first_block_run) = first_block_run {
+            if first_block_run.newest_block_hash != highest_block_hash {
+                log::warn!("incorrect first block for hash of {}. reorg", chain);
+                bail!("incorrect first block hash for calculation of {}", chain);
+            }
+        }
+    }
+
+    let mut num_txs: u64 = 0;
+
+    let mut init_timestamp = 0;
+
+    while let Some(block_run) = block_run_stream.next().await {
+        let block_run = block_run?;
+        if block_run.newest_block_timestamp <= min_timestamp {
+            init_timestamp = block_run.newest_block_timestamp;
+            break;
+        } else if block_run.oldest_block_timestamp <= min_timestamp {
+            todo!();
+            break;
+        } else {
+            num_txs = num_txs.saturating_add(block_run.num_txs);
+        }
+    }
+
+    let tps = calculate_tps(init_timestamp, highest_block_timestamp, num_txs)?;
+
+    Ok(ChainCalcs { chain, tps })
 }
 
 async fn calculate_from_blocks(
     chain: Chain,
     db: Arc<dyn Db>,
     highest_block_number: u64,
-    latest_timestamp: u64,
+    highest_block_hash: String,
+    highest_block_timestamp: u64,
     min_timestamp: u64,
 ) -> Result<ChainCalcs> {
     let load_block = |number| load_block(chain, &db, number);
@@ -46,6 +93,11 @@ async fn calculate_from_blocks(
     let mut current_block = load_block(highest_block_number)
         .await?
         .ok_or_else(|| anyhow!("missing first block"))?;
+
+    if current_block.hash != highest_block_hash {
+        log::warn!("incorrect first block for hash of {}. reorg", chain);
+        bail!("incorrect first block hash for calculation of {}", chain);
+    }
 
     let mut num_txs: u64 = 0;
 
@@ -67,8 +119,7 @@ async fn calculate_from_blocks(
         let prev_block = prev_block.unwrap();
 
         num_txs = num_txs
-            .checked_add(current_block.num_txs)
-            .expect("overflow");
+            .saturating_add(current_block.num_txs);
 
         if prev_block.timestamp <= min_timestamp {
             break prev_block.timestamp;
@@ -80,7 +131,7 @@ async fn calculate_from_blocks(
         current_block = prev_block;
     };
 
-    let tps = calculate_tps(init_timestamp, latest_timestamp, num_txs)?;
+    let tps = calculate_tps(init_timestamp, highest_block_timestamp, num_txs)?;
 
     Ok(ChainCalcs { chain, tps })
 }

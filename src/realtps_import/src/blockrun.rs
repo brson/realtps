@@ -55,6 +55,38 @@ async fn send_block_runs_fallible(
     tx: Sender<Result<BlockRun>>,
     starting_block_number: u64,
 ) -> Result<()> {
+    async fn send_block_run(
+        block_buffer: &mut Vec<Block>,
+        last_block_run_timestamp: &mut u64,
+        tx: &Sender<Result<BlockRun>>,
+    ) -> Result<()> {
+        if !block_buffer.is_empty() {
+            let newest_block = block_buffer.first().unwrap();
+            let oldest_block = block_buffer.last().unwrap();
+            assert!(newest_block.block_number >= oldest_block.block_number);
+
+            let block_run = BlockRun {
+                newest_block_number: newest_block.block_number,
+                newest_block_hash: newest_block.hash.clone(),
+                newest_block_timestamp: newest_block.timestamp,
+                oldest_block_timestamp: oldest_block.timestamp,
+                prev_block: oldest_block.prev_block_number.map(|prev_block_number| {
+                    PreviousBlock {
+                        prev_block_number,
+                        prev_block_hash: oldest_block.parent_hash.clone(),
+                    }
+                }),
+                num_blocks: u64::try_from(block_buffer.len()).expect("overflow"),
+                num_txs: block_buffer.iter().fold(0, |accum, block| accum.saturating_add(block.num_txs))
+            };
+
+            *last_block_run_timestamp = oldest_block.timestamp;
+
+            tx.send(Ok(block_run)).await?;
+        }
+        Ok(())
+    }
+
     let block_runs = load_block_run_summary(chain, &db).await?;
     let block_runs: Vec<BlockRun> = block_runs.map(|br| br.block_runs).unwrap_or_default();
     let mut block_runs = block_runs.into_iter().peekable();
@@ -62,38 +94,6 @@ async fn send_block_runs_fallible(
     // Build new block runs from the highest block until
     // it joins with the existing block runs.
     {
-        async fn send_block_run(
-            block_buffer: &mut Vec<Block>,
-            last_block_run_timestamp: &mut u64,
-            tx: &Sender<Result<BlockRun>>,
-        ) -> Result<()> {
-            if !block_buffer.is_empty() {
-                let newest_block = block_buffer.first().unwrap();
-                let oldest_block = block_buffer.last().unwrap();
-                assert!(newest_block.block_number >= oldest_block.block_number);
-
-                let block_run = BlockRun {
-                    newest_block_number: newest_block.block_number,
-                    newest_block_hash: newest_block.hash.clone(),
-                    newest_block_timestamp: newest_block.timestamp,
-                    oldest_block_timestamp: oldest_block.timestamp,
-                    prev_block: oldest_block.prev_block_number.map(|prev_block_number| {
-                        PreviousBlock {
-                            prev_block_number,
-                            prev_block_hash: oldest_block.parent_hash.clone(),
-                        }
-                    }),
-                    num_blocks: u64::try_from(block_buffer.len()).expect("overflow"),
-                    num_txs: block_buffer.iter().fold(0, |accum, block| accum.saturating_add(block.num_txs))
-                };
-
-                *last_block_run_timestamp = oldest_block.timestamp;
-
-                tx.send(Ok(block_run)).await?;
-            }
-            Ok(())
-        }
-
         fn handle_reorg(block_runs: &mut impl Iterator) {
             block_runs.next();
         }
@@ -155,15 +155,69 @@ async fn send_block_runs_fallible(
 
         assert!(block_buffer.is_empty());
     }
-    
+
+    let mut last_starting_block_number = None;
+
     // Now send all the remaning block runs
     for block_run in block_runs {
+        last_starting_block_number = if let Some(prev_block) = block_run.prev_block.clone() {
+            Some(prev_block.prev_block_number)
+        } else {
+            None
+        };
         tx.send(Ok(block_run)).await?;
     }
 
-    // Now turn all the remaining blocks into block runs
+    if last_starting_block_number.is_none() {
+        return Ok(());
+    }
 
-    todo!();
+    let last_starting_block_number = last_starting_block_number.unwrap();
+
+    // Now turn all the remaining blocks into block runs
+    {
+        let starting_block_number = last_starting_block_number;
+        let starting_block_timestamp = load_block(chain, &db, starting_block_number).await?
+            .ok_or_else(|| anyhow!("missing first block"))?
+            .timestamp;
+
+        let mut block_number = starting_block_number;
+        let mut last_block_run_timestamp = starting_block_timestamp;
+        let mut block_buffer = vec![];
+
+        loop {
+            let block = load_block(chain, &db, block_number).await?;
+
+            if block.is_none() {
+                // Finished.
+                send_block_run(&mut block_buffer, &mut last_block_run_timestamp, &tx).await?;
+                return Ok(());
+            }
+
+            let block = block.unwrap();
+
+            let timestamp = block.timestamp;
+            let prev_block_number = block.prev_block_number;
+
+            block_buffer.push(block);
+
+            let should_send = timestamp <= last_block_run_timestamp.saturating_sub(BLOCK_RUN_MIN_SECS);
+
+            if should_send {
+                send_block_run(&mut block_buffer, &mut last_block_run_timestamp, &tx).await?;
+            }
+
+            if let Some(prev_block_number) = prev_block_number {
+                block_number = prev_block_number;
+            } else {
+                // Finished.
+                send_block_run(&mut block_buffer, &mut last_block_run_timestamp, &tx).await?;
+                return Ok(());
+            }
+        }
+
+        assert!(block_buffer.is_empty());
+    }
 
     Ok(())
 }

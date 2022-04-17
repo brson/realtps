@@ -34,6 +34,7 @@ pub struct BlockRun {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone)]
 pub struct PreviousBlock {
     pub prev_block_number: u64,
     pub prev_block_hash: String,
