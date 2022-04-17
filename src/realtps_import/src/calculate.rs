@@ -68,7 +68,15 @@ async fn calculate_from_block_runs(
             init_timestamp = block_run.newest_block_timestamp;
             break;
         } else if block_run.oldest_block_timestamp <= min_timestamp {
-            todo!();
+            let (more_txs, init_timestamp_) = num_txs_from_blocks(
+                chain,
+                db,
+                block_run.newest_block_number,
+                block_run.newest_block_hash,
+                min_timestamp,
+            ).await?;
+            num_txs = num_txs.saturating_add(more_txs);
+            init_timestamp = init_timestamp_;
             break;
         } else {
             num_txs = num_txs.saturating_add(block_run.num_txs);
