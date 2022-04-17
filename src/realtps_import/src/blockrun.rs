@@ -1,17 +1,13 @@
-#![allow(unused)]
-
 use crate::helpers::*;
 use anyhow::{Result, anyhow};
 use realtps_common::chain::Chain;
-use realtps_common::db::{Block, BlockRun, PreviousBlock, BlockRunSummary, Db};
+use realtps_common::db::{Block, BlockRun, PreviousBlock, Db};
 use std::sync::Arc;
 use tokio_stream::wrappers::ReceiverStream;
-use tokio::sync::mpsc::{self, Sender, Receiver};
+use tokio::sync::mpsc::{self, Sender};
 use tokio::task;
-use std::future::Future;
-use std::iter::Peekable;
 use std::vec;
-use futures::stream::{Stream, StreamExt};
+use futures::stream::StreamExt;
 
 const BLOCK_RUN_MIN_SECS: u64 = 60 * 60;
 
@@ -215,11 +211,7 @@ async fn send_block_runs_fallible(
                 return Ok(());
             }
         }
-
-        assert!(block_buffer.is_empty());
     }
-
-    Ok(())
 }
 
 async fn merge_short_runs(mut stream: ReceiverStream<Result<BlockRun>>) -> Result<ReceiverStream<Result<BlockRun>>> {
@@ -276,7 +268,7 @@ async fn merge_short_runs(mut stream: ReceiverStream<Result<BlockRun>>) -> Resul
 async fn check_stream(mut stream: ReceiverStream<Result<BlockRun>>) -> Result<ReceiverStream<Result<BlockRun>>> {
     let (tx, rx) = mpsc::channel(1);
     task::spawn(async move {
-        todo!();
+        // todo
         while let Some(block_run) = stream.next().await {
             tx.send(block_run).await?;
         }
