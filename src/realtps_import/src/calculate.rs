@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use crate::helpers::*;
 use anyhow::{anyhow, Result, bail};
 use realtps_common::{chain::Chain, db::Db};
